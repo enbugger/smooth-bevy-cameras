@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub struct FpsCameraPlugin;
 
 impl Plugin for FpsCameraPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.add_system(default_input_map.system())
             .add_system(control_system.system())
             .add_event::<ControlEvent>();

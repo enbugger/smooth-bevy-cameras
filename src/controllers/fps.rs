@@ -14,39 +14,20 @@ pub struct FpsCameraPlugin;
 
 impl Plugin for FpsCameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(default_input_map.system())
-            .add_system(control_system.system())
-            .add_event::<ControlEvent>();
+        app.add_system(map_fps_input.system())
+            .add_system(control_fps_camera.system())
+            .add_event::<FPSControlEvent>();
     }
 }
 
 #[derive(Bundle)]
 pub struct FpsCameraBundle {
     controller: FpsCameraController,
-    #[bundle]
-    look_transform: LookTransformBundle,
-    #[bundle]
-    perspective: PerspectiveCameraBundle,
 }
 
 impl FpsCameraBundle {
-    pub fn new(
-        controller: FpsCameraController,
-        mut perspective: PerspectiveCameraBundle,
-        eye: Vec3,
-        target: Vec3,
-    ) -> Self {
-        // Make sure the transform is consistent with the controller to start.
-        perspective.transform = Transform::from_translation(eye).looking_at(target, Vec3::Y);
-
-        Self {
-            controller,
-            look_transform: LookTransformBundle {
-                transform: LookTransform { eye, target },
-                smoother: Smoother::new(controller.smoothing_weight),
-            },
-            perspective,
-        }
+    pub fn new( controller: FpsCameraController) -> Self {
+        Self { controller }
     }
 }
 
@@ -56,7 +37,6 @@ pub struct FpsCameraController {
     pub enabled: bool,
     pub mouse_rotate_sensitivity: Vec2,
     pub translate_sensitivity: f32,
-    pub smoothing_weight: f32,
 }
 
 impl Default for FpsCameraController {
@@ -65,21 +45,20 @@ impl Default for FpsCameraController {
             enabled: true,
             mouse_rotate_sensitivity: Vec2::splat(0.002),
             translate_sensitivity: 0.5,
-            smoothing_weight: 0.9,
         }
     }
 }
 
-pub enum ControlEvent {
+pub enum FPSControlEvent {
     Rotate(Vec2),
     TranslateEye(Vec3),
 }
 
-pub fn default_input_map(
-    mut events: EventWriter<ControlEvent>,
+pub fn map_fps_input(
+    mut events: EventWriter<FPSControlEvent>,
     keyboard: Res<Input<KeyCode>>,
     mut mouse_motion_events: EventReader<MouseMotion>,
-    controllers: Query<&FpsCameraController>,
+    controllers: Query<&FpsCameraController, With<Transform>>,
 ) {
     // Can only control one camera at a time.
     let controller = if let Some(controller) = controllers.iter().next() {
@@ -103,7 +82,7 @@ pub fn default_input_map(
         cursor_delta += event.delta;
     }
 
-    events.send(ControlEvent::Rotate(
+    events.send(FPSControlEvent::Rotate(
         mouse_rotate_sensitivity * cursor_delta,
     ));
 
@@ -119,18 +98,18 @@ pub fn default_input_map(
     .cloned()
     {
         if keyboard.pressed(key) {
-            events.send(ControlEvent::TranslateEye(translate_sensitivity * dir));
+            events.send(FPSControlEvent::TranslateEye(translate_sensitivity * dir));
         }
     }
 }
 
-pub fn control_system(
-    mut events: EventReader<ControlEvent>,
-    mut cameras: Query<(&FpsCameraController, &mut LookTransform)>,
+pub fn control_fps_camera(
+    mut events: EventReader<FPSControlEvent>,
+    mut cameras: Query<(&FpsCameraController, &mut LookTransform, With<Transform>)>,
 ) {
     // Can only control one camera at a time.
     let (controller, mut transform) =
-        if let Some((controller, transform)) = cameras.iter_mut().next() {
+        if let Some((controller, transform, _)) = cameras.iter_mut().next() {
             (controller, transform)
         } else {
             return;
@@ -147,12 +126,12 @@ pub fn control_system(
 
         for event in events.iter() {
             match event {
-                ControlEvent::Rotate(delta) => {
+                FPSControlEvent::Rotate(delta) => {
                     // Rotates with pitch and yaw.
                     look_angles.add_yaw(-delta.x);
                     look_angles.add_pitch(-delta.y);
                 }
-                ControlEvent::TranslateEye(delta) => {
+                FPSControlEvent::TranslateEye(delta) => {
                     // Translates up/down (Y) left/right (X) and forward/back (Z).
                     transform.eye += delta.x * rot_x + delta.y * rot_y + delta.z * rot_z;
                 }

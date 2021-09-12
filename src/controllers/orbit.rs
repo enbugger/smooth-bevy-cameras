@@ -1,4 +1,4 @@
-use crate::{LookAngles, LookTransform, LookTransformBundle, Smoother};
+use crate::{LookAngles, LookTransform, LookTransformBundle, Smoother, ControllerEnabled};
 
 use bevy::{
     app::prelude::*,
@@ -17,39 +17,21 @@ pub struct OrbitCameraPlugin;
 
 impl Plugin for OrbitCameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(default_input_map.system())
-            .add_system(control_system.system())
-            .add_event::<ControlEvent>();
+        app.add_system(map_orbit_input.system())
+            .add_system(control_orbit_camera.system())
+            .add_event::<OrbitControlEvent>();
     }
 }
+
 
 #[derive(Bundle)]
 pub struct OrbitCameraBundle {
     controller: OrbitCameraController,
-    #[bundle]
-    look_transform: LookTransformBundle,
-    #[bundle]
-    perspective: PerspectiveCameraBundle,
 }
 
 impl OrbitCameraBundle {
-    pub fn new(
-        controller: OrbitCameraController,
-        mut perspective: PerspectiveCameraBundle,
-        eye: Vec3,
-        target: Vec3,
-    ) -> Self {
-        // Make sure the transform is consistent with the controller to start.
-        perspective.transform = Transform::from_translation(eye).looking_at(target, Vec3::Y);
-
-        Self {
-            controller,
-            look_transform: LookTransformBundle {
-                transform: LookTransform { eye, target },
-                smoother: Smoother::new(controller.smoothing_weight),
-            },
-            perspective,
-        }
+    pub fn new( controller: OrbitCameraController) -> Self {
+        Self { controller }
     }
 }
 
@@ -60,7 +42,6 @@ pub struct OrbitCameraController {
     pub mouse_rotate_sensitivity: Vec2,
     pub mouse_translate_sensitivity: Vec2,
     pub mouse_wheel_zoom_sensitivity: f32,
-    pub smoothing_weight: f32,
 }
 
 impl Default for OrbitCameraController {
@@ -69,25 +50,24 @@ impl Default for OrbitCameraController {
             mouse_rotate_sensitivity: Vec2::splat(0.006),
             mouse_translate_sensitivity: Vec2::splat(0.008),
             mouse_wheel_zoom_sensitivity: 0.15,
-            smoothing_weight: 0.8,
             enabled: true,
         }
     }
 }
 
-pub enum ControlEvent {
+pub enum OrbitControlEvent {
     Orbit(Vec2),
     TranslateTarget(Vec2),
     Zoom(f32),
 }
 
-pub fn default_input_map(
-    mut events: EventWriter<ControlEvent>,
+pub fn map_orbit_input(
+    mut events: EventWriter<OrbitControlEvent>,
     mut mouse_wheel_reader: EventReader<MouseWheel>,
     mut mouse_motion_events: EventReader<MouseMotion>,
     mouse_buttons: Res<Input<MouseButton>>,
-    keyboard: Res<Input<KeyCode>>,
-    controllers: Query<&OrbitCameraController>,
+    _keyboard: Res<Input<KeyCode>>,
+    controllers: Query<&OrbitCameraController, With<Transform>>,
 ) {
     // Can only control one camera at a time.
     let controller = if let Some(controller) = controllers.iter().next() {
@@ -112,12 +92,10 @@ pub fn default_input_map(
         cursor_delta += event.delta;
     }
 
-    if keyboard.pressed(KeyCode::LControl) {
-        events.send(ControlEvent::Orbit(mouse_rotate_sensitivity * cursor_delta));
-    }
+    events.send(OrbitControlEvent::Orbit(mouse_rotate_sensitivity * cursor_delta));
 
-    if mouse_buttons.pressed(MouseButton::Right) {
-        events.send(ControlEvent::TranslateTarget(
+    if mouse_buttons.pressed(MouseButton::Middle) {
+        events.send(OrbitControlEvent::TranslateTarget(
             mouse_translate_sensitivity * cursor_delta,
         ));
     }
@@ -126,16 +104,16 @@ pub fn default_input_map(
     for event in mouse_wheel_reader.iter() {
         scalar *= 1.0 + -event.y * mouse_wheel_zoom_sensitivity;
     }
-    events.send(ControlEvent::Zoom(scalar));
+    events.send(OrbitControlEvent::Zoom(scalar));
 }
 
-pub fn control_system(
-    mut events: EventReader<ControlEvent>,
-    mut cameras: Query<(&OrbitCameraController, &mut LookTransform, &Transform)>,
+pub fn control_orbit_camera(
+    mut events: EventReader<OrbitControlEvent>,
+    mut cameras: Query<(&OrbitCameraController, &mut LookTransform, &Transform, With<Transform>)>,
 ) {
     // Can only control one camera at a time.
     let (controller, mut transform, scene_transform) =
-        if let Some((controller, transform, scene_transform)) = cameras.iter_mut().next() {
+        if let Some((controller, transform, scene_transform, _)) = cameras.iter_mut().next() {
             (controller, transform, scene_transform)
         } else {
             return;
@@ -147,16 +125,16 @@ pub fn control_system(
 
         for event in events.iter() {
             match event {
-                ControlEvent::Orbit(delta) => {
+                OrbitControlEvent::Orbit(delta) => {
                     look_angles.add_yaw(-delta.x);
                     look_angles.add_pitch(delta.y);
                 }
-                ControlEvent::TranslateTarget(delta) => {
+                OrbitControlEvent::TranslateTarget(delta) => {
                     let right_dir = scene_transform.rotation * -Vec3::X;
                     let up_dir = scene_transform.rotation * Vec3::Y;
                     transform.target += delta.x * right_dir + delta.y * up_dir;
                 }
-                ControlEvent::Zoom(scalar) => {
+                OrbitControlEvent::Zoom(scalar) => {
                     radius_scalar *= scalar;
                 }
             }

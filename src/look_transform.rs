@@ -2,6 +2,7 @@ use bevy::{
     app::prelude::*,
     ecs::{bundle::Bundle, prelude::*},
     math::prelude::*,
+    render::prelude::*,
     transform::components::Transform,
 };
 
@@ -19,6 +20,21 @@ pub struct LookTransformBundle {
     pub smoother: Smoother,
 }
 
+impl LookTransformBundle {
+    pub fn new(
+        eye: Vec3,
+        target: Vec3,
+        smoothing_weight: f32,
+    ) -> (Self, Transform) {
+
+        (Self {
+            transform: LookTransform { eye, target },
+            smoother: Smoother::new(smoothing_weight),
+        },
+        // Make sure the transform is consistent with the controller to start.
+        Transform::from_translation(eye).looking_at(target, Vec3::Y))
+    }
+}
 /// An eye and the target it's looking at. As a component, this can be modified in place of bevy's `Transform`, and the two will
 /// stay in sync.
 #[derive(Clone, Copy, Debug)]
@@ -42,6 +58,8 @@ impl LookTransform {
         (self.target - self.eye).normalize()
     }
 }
+
+pub struct ControllerEnabled {}
 
 fn eye_look_at_target_transform(eye: Vec3, target: Vec3) -> Transform {
     // If eye and target are very close, we avoid imprecision issues by keeping the look vector a unit vector.
